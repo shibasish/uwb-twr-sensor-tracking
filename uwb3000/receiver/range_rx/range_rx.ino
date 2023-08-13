@@ -1,7 +1,10 @@
 #include "dw3000.h"
-#include <SPI.h>
+// #include <SPI.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <iostream>
+#include <string>
+#include <sstream>
 
 #define PIN_RST 27
 #define PIN_IRQ 34
@@ -44,7 +47,9 @@ static double tof;
 static double distance;
 extern dwt_txconfig_t txconfig_options;
 
-#define ANCHOR_ADD "86:17:5B:D5:A9:9A:E2:9C"
+// using namespace std;
+
+// #define ANCHOR_ADD "86:17:5B:D5:A9:9A:E2:9C"
 
 // connection pins
 // const uint8_t PIN_RST = 9; // reset pin
@@ -55,85 +60,17 @@ const char* ssid     = "Vodafone-E319";
 const char* password = "3eDBcatn4AQ88qEh";
 const char* mqtt_server = "192.168.0.80";
 
-int btnGPIO = 0;
-int btnState = false;
+// int btnGPIO = 0;
+// int btnState = false;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 void setup()
 {
-  UART_init();
-
-  spiBegin(PIN_IRQ, PIN_RST);
-  spiSelect(PIN_SS);
-
-  delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
-
-  while (!dwt_checkidlerc()) // Need to make sure DW IC is in IDLE_RC before proceeding
-  {
-    UART_puts("IDLE FAILED\r\n");
-    while (1)
-      ;
-  }
-
-  if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR)
-  {
-    UART_puts("INIT FAILED\r\n");
-    while (1)
-      ;
-  }
-
-  // Enabling LEDs here for debug so that for each TX the D1 LED will flash on DW3000 red eval-shield boards.
-  dwt_setleds(DWT_LEDS_ENABLE | DWT_LEDS_INIT_BLINK);
-
-  /* Configure DW IC. See NOTE 6 below. */
-  if (dwt_configure(&config)) // if the dwt_configure returns DWT_ERROR either the PLL or RX calibration has failed the host should reset the device
-  {
-    UART_puts("CONFIG FAILED\r\n");
-    while (1)
-      ;
-  }
-
-  /* Configure the TX spectrum parameters (power, PG delay and PG count) */
-  dwt_configuretxrf(&txconfig_options);
-
-  /* Apply default antenna delay value. See NOTE 2 below. */
-  dwt_setrxantennadelay(RX_ANT_DLY);
-  dwt_settxantennadelay(TX_ANT_DLY);
-
-  /* Set expected response's delay and timeout. See NOTE 1 and 5 below.
-   * As this example only handles one incoming frame with always the same delay and timeout, those values can be set here once for all. */
-  dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
-  dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
-
-  /* Next can enable TX/RX states output on GPIOs 5 and 6 to help debug, and also TX/RX LEDs
-   * Note, in real low power applications the LEDs should not be used. */
-  dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
-
-  // Serial.begin(300);
-
-    // SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
-  delay(10);
-
-    // Set GPIO0 Boot button as input
-  pinMode(btnGPIO, INPUT);
-
-    // We start by connecting to a WiFi network
-    // To debug, please enable Core Debug Level to Verbose
-
-  Serial.println();
-  Serial.print("[WiFi] Connecting to ");
-  Serial.println(ssid);
+  initializeDW3000();
   setup_wifi();
-
-    
-  Serial.println("Connecting to broker:");
-  client.setServer(mqtt_server, 1883);
-  Serial.println("Broker Connected");
-
-  Serial.println("Range RX");
-  Serial.println("Setup over........");
+  setup_mqtt_broker();
 }
 
 void loop()
@@ -209,14 +146,24 @@ void loop()
   }
 
   client.loop();
-  client.publish("my-topic", "{name: Hello}");
+
+  char b[12];
+  std::stringstream ss;
+
+  ss << distance;
+  ss >> b;
+  // cout << b << endl;
+
+  client.publish("my-topic", b);
 
   /* Execute a delay between ranging exchanges. */
   Sleep(RNG_DELAY_MS);
 }
 
 void setup_wifi() {
+  // Serial.begin(115200);
   delay(10);
+
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
@@ -234,18 +181,205 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 }
 
-void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (client.connect("ESP32Client")) {
-      Serial.println("connected");
-      // Once connected, publish an announcement...
-      client.publish("my-topic", "hello from device");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
-  }
+
+void setup_mqtt_broker(){
+    Serial.println("Connecting to broker:");
+    client.setServer(mqtt_server, 1883);
+    client.connect("ESP32Client");
+    Serial.println("Broker Connected");
 }
+
+// Placeholder function for initializing the DW3000 module
+void initializeDW3000() {
+    // Setup SPI, pins, and other initializations for the DW3000
+    // Refer to the DW3000 documentation for initialization details
+
+  UART_init();
+
+  spiBegin(PIN_IRQ, PIN_RST);
+  spiSelect(PIN_SS);
+
+  delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
+
+  while (!dwt_checkidlerc()) // Need to make sure DW IC is in IDLE_RC before proceeding
+  {
+    UART_puts("IDLE FAILED\r\n");
+    while (1)
+      ;
+  }
+
+  if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR)
+  {
+    UART_puts("INIT FAILED\r\n");
+    while (1)
+      ;
+  }
+
+  // Enabling LEDs here for debug so that for each TX the D1 LED will flash on DW3000 red eval-shield boards.
+  dwt_setleds(DWT_LEDS_ENABLE | DWT_LEDS_INIT_BLINK);
+
+  /* Configure DW IC. See NOTE 6 below. */
+  if (dwt_configure(&config)) // if the dwt_configure returns DWT_ERROR either the PLL or RX calibration has failed the host should reset the device
+  {
+    UART_puts("CONFIG FAILED\r\n");
+    while (1)
+      ;
+  }
+
+  /* Configure the TX spectrum parameters (power, PG delay and PG count) */
+  dwt_configuretxrf(&txconfig_options);
+
+  /* Apply default antenna delay value. See NOTE 2 below. */
+  dwt_setrxantennadelay(RX_ANT_DLY);
+  dwt_settxantennadelay(TX_ANT_DLY);
+
+  /* Set expected response's delay and timeout. See NOTE 1 and 5 below.
+   * As this example only handles one incoming frame with always the same delay and timeout, those values can be set here once for all. */
+  dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
+  dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
+
+  /* Next can enable TX/RX states output on GPIOs 5 and 6 to help debug, and also TX/RX LEDs
+   * Note, in real low power applications the LEDs should not be used. */
+  dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
+
+  Serial.println("Range RX");
+  Serial.println("Setup over........");
+}
+
+
+// void reconnect() {
+//   while (!client.connected()) {
+//     Serial.print("Attempting MQTT connection...");
+//     if (client.connect("ESP32Client")) {
+//       Serial.println("connected");
+//       // Once connected, publish an announcement...
+//       // client.publish("my-topic", "hello from device");
+//     } else {
+//       Serial.print("failed, rc=");
+//       Serial.print(client.state());
+//       Serial.println(" try again in 5 seconds");
+//       delay(5000);
+//     }
+//   }
+// }
+
+// #include <WiFi.h>
+// #include <PubSubClient.h>
+// // #include <SPI.h>
+// // #include "DW1000Ranging.h"
+
+// #define ANCHOR_ADD "86:17:5B:D5:A9:9A:E2:9C"
+
+// // connection pins
+// const uint8_t PIN_RST = 9; // reset pin
+// const uint8_t PIN_IRQ = 2; // irq pin
+// const uint8_t PIN_SS = SS; 
+
+// const char* ssid     = "Vodafone-E319";
+// const char* password = "3eDBcatn4AQ88qEh";
+// const char* mqtt_server = "192.168.0.80";
+
+// int btnGPIO = 0;
+// int btnState = false;
+
+// WiFiClient espClient;
+// PubSubClient client(espClient);
+
+// void setup()
+// {
+//     Serial.begin(300);
+
+//     // SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+//     delay(10);
+
+//     // Set GPIO0 Boot button as input
+//     pinMode(btnGPIO, INPUT);
+
+//     // We start by connecting to a WiFi network
+//     // To debug, please enable Core Debug Level to Verbose
+
+//     Serial.println();
+//     Serial.print("[WiFi] Connecting to ");
+//     Serial.println(ssid);
+//     setup_wifi();
+
+    
+//     Serial.println("Connecting to broker:");
+//     client.setServer(mqtt_server, 1883);
+//     Serial.println("Broker Connected");
+    
+//     // DW1000Ranging.initCommunication(PIN_RST, PIN_SS, PIN_IRQ); //Reset, CS, IRQ pin
+//     // //define the sketch as anchor. It will be great to dynamically change the type of module
+//     // DW1000Ranging.attachNewRange(newRange);
+//     // DW1000Ranging.attachBlinkDevice(newBlink);
+//     // DW1000Ranging.attachInactiveDevice(inactiveDevice);
+//     // //Enable the filter to smooth the distance
+//     // //DW1000Ranging.useRangeFilter(true);
+  
+//     // //we start the module as an anchor
+//     // DW1000Ranging.startAsAnchor("82:17:5B:D5:A9:9A:E2:9C", DW1000.MODE_LONGDATA_RANGE_ACCURACY);
+// }
+
+// void setup_wifi() {
+//   delay(10);
+//   Serial.println();
+//   Serial.print("Connecting to ");
+//   Serial.println(ssid);
+
+//   WiFi.begin(ssid, password);
+
+//   while (WiFi.status() != WL_CONNECTED) {
+//     delay(500);
+//     Serial.print(".");
+//   }
+
+//   Serial.println("");
+//   Serial.println("WiFi connected");
+//   Serial.println("IP address: ");
+//   Serial.println(WiFi.localIP());
+// }
+
+// void reconnect() {
+//   while (!client.connected()) {
+//     Serial.print("Attempting MQTT connection...");
+//     if (client.connect("ESP32Client")) {
+//       Serial.println("connected");
+//       // Once connected, publish an announcement...
+//       client.publish("my-topic", "hello from device");
+//     } else {
+//       Serial.print("failed, rc=");
+//       Serial.print(client.state());
+//       Serial.println(" try again in 5 seconds");
+//       delay(5000);
+//     }
+//   }
+// }
+
+// void loop()
+// {
+//   if (!client.connected()) {
+//     reconnect();
+//   }
+//   // DW1000Ranging.loop();
+//   client.loop();
+//   client.publish("my-topic", "{name: Hello}");
+//   delay(1000);
+// //    }
+// }
+
+// void newRange() {
+//   Serial.print("from: "); Serial.print(DW1000Ranging.getDistantDevice()->getShortAddress(), HEX);
+//   Serial.print("\t Range: "); Serial.print(DW1000Ranging.getDistantDevice()->getRange()); Serial.print(" m");
+//   Serial.print("\t RX power: "); Serial.print(DW1000Ranging.getDistantDevice()->getRXPower()); Serial.println(" dBm");
+// }
+
+// void newBlink(DW1000Device* device) {
+//   Serial.print("blink; 1 device added ! -> ");
+//   Serial.print(" short:");
+//   Serial.println(device->getShortAddress(), HEX);
+// }
+
+// void inactiveDevice(DW1000Device* device) {
+//   Serial.print("delete inactive device: ");
+//   Serial.println(device->getShortAddress(), HEX);
+// }
