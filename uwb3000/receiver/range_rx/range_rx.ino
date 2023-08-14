@@ -131,10 +131,11 @@ void loop() {
           distance = tof * SPEED_OF_LIGHT;
 
           distances[response_count] = distance;
+          Serial.println("Anchor "+ String(response_count) + "'s distance: "+ String(distance));
           response_count++;
 
           /* Display computed distance on LCD. */
-          snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+          // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
           test_run_info((unsigned char*)dist_str);
         }
       }
