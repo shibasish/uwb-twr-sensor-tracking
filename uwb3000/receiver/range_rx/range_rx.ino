@@ -122,12 +122,18 @@ void loop()
         /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
         clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1 << 26);
 
-        uint32_t received_anchor_id = 0;
-        received_anchor_id |= (uint32_t)rx_buffer[20] << 24;  // 4th byte of anchor_id
-        received_anchor_id |= (uint32_t)rx_buffer[21] << 16;  // 3rd byte of anchor_id
-        received_anchor_id |= (uint32_t)rx_buffer[22] << 8;   // 2nd byte of anchor_id
-        received_anchor_id |= (uint32_t)rx_buffer[23];
+        // Serial.println("Raw received data len: "+ String(frame_len));
+        // for (int i = 0; i < frame_len; i++) {
+        //   Serial.print(rx_buffer[i], HEX);
+        //   Serial.print(" ");
+        // }
+        // Serial.println();
 
+        // uint32_t received_anchor_id;
+        uint8_t received_anchor_id;
+        memcpy(&received_anchor_id, &rx_buffer[20], sizeof(received_anchor_id));
+        Serial.println(received_anchor_id, DEC);
+   
         Serial.println("Anchor-id: "+ String(received_anchor_id));
 
         /* Get timestamps embedded in response message. */
