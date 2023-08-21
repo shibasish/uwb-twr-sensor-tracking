@@ -34,9 +34,9 @@ static dwt_config_t config = {
 };
 
 static uint8_t rx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0xE0, 0, 0};
-static uint8_t tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8_t frame_seq_nb = 0;
-static uint8_t rx_buffer[20];
+static uint8_t rx_buffer[30];
 static uint32_t status_reg = 0;
 static uint64_t poll_rx_ts;
 static uint64_t resp_tx_ts;
@@ -134,6 +134,12 @@ void loop()
 
         /* Response TX timestamp is the transmission time we programmed plus the antenna delay. */
         resp_tx_ts = (((uint64_t)(resp_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
+
+        uint32_t anchor_id = 3737780994;
+        tx_resp_msg[20] = (anchor_id >> 24) & 0xFF;  // 4th byte of anchor_id
+        tx_resp_msg[21] = (anchor_id >> 16) & 0xFF;  // 3rd byte of anchor_id
+        tx_resp_msg[22] = (anchor_id >> 8) & 0xFF;   // 2nd byte of anchor_id
+        tx_resp_msg[23] = anchor_id & 0xFF;          // 1st byte of anchor_id
 
         /* Write all timestamps in the final message. See NOTE 8 below. */
         resp_msg_set_ts(&tx_resp_msg[RESP_MSG_POLL_RX_TS_IDX], poll_rx_ts);

@@ -23,25 +23,25 @@
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config = {
-  5,                /* Channel number. */
-  DWT_PLEN_128,     /* Preamble length. Used in TX only. */
-  DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
-  9,                /* TX preamble code. Used in TX only. */
-  9,                /* RX preamble code. Used in RX only. */
-  1,                /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
-  DWT_BR_6M8,       /* Data rate. */
-  DWT_PHRMODE_STD,  /* PHY header mode. */
-  DWT_PHRRATE_STD,  /* PHY header rate. */
-  (129 + 8 - 8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
-  DWT_STS_MODE_OFF, /* STS disabled */
-  DWT_STS_LEN_64,   /* STS length see allowed values in Enum dwt_sts_lengths_e */
-  DWT_PDOA_M0       /* PDOA mode off */
+    5,                /* Channel number. */
+    DWT_PLEN_128,     /* Preamble length. Used in TX only. */
+    DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
+    9,                /* TX preamble code. Used in TX only. */
+    9,                /* RX preamble code. Used in RX only. */
+    1,                /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
+    DWT_BR_6M8,       /* Data rate. */
+    DWT_PHRMODE_STD,  /* PHY header mode. */
+    DWT_PHRRATE_STD,  /* PHY header rate. */
+    (129 + 8 - 8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
+    DWT_STS_MODE_OFF, /* STS disabled */
+    DWT_STS_LEN_64,   /* STS length see allowed values in Enum dwt_sts_lengths_e */
+    DWT_PDOA_M0       /* PDOA mode off */
 };
 
-static uint8_t tx_poll_msg[] = { 0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0xE0, 0, 0 };
-static uint8_t rx_resp_msg[] = { 0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0xE0, 0, 0};
+static uint8_t rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8_t frame_seq_nb = 0;
-static uint8_t rx_buffer[20];
+static uint8_t rx_buffer[30];
 static uint32_t status_reg = 0;
 static double tof;
 static double distance;
@@ -54,9 +54,9 @@ extern dwt_txconfig_t txconfig_options;
 // connection pins
 // const uint8_t PIN_RST = 9; // reset pin
 // const uint8_t PIN_IRQ = 2; // irq pin
-// const uint8_t PIN_SS = SS;
+// const uint8_t PIN_SS = SS; 
 
-const char* ssid = "Vodafone-E319";
+const char* ssid     = "Vodafone-E319";
 const char* password = "3eDBcatn4AQ88qEh";
 const char* mqtt_server = "192.168.0.80";
 
@@ -66,17 +66,15 @@ const char* mqtt_server = "192.168.0.80";
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-void setup() {
+void setup()
+{
   initializeDW3000();
   setup_wifi();
   setup_mqtt_broker();
 }
 
-void loop() {
-  int response_count = 0;
-  uint32_t frame_len;
-  float distances[2];
-
+void loop()
+{
   /* Write frame data to DW IC and prepare transmission. See NOTE 7 below. */
   tx_poll_msg[ALL_MSG_SN_IDX] = frame_seq_nb;
   dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS_BIT_MASK);
@@ -88,106 +86,81 @@ void loop() {
   dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
 
   /* We assume that the transmission is achieved correctly, poll for reception of a frame or error/timeout. See NOTE 8 below. */
-  // while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & (SYS_STATUS_RXFCG_BIT_MASK | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)))
-  // {
-  // };
+  while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & (SYS_STATUS_RXFCG_BIT_MASK | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)))
+  {
+  };
 
-  while (response_count < 2) {
-    if (status_reg & SYS_STATUS_RXFCG_BIT_MASK) {
-      // uint32_t frame_len;
+  /* Increment frame sequence number after transmission of the poll message (modulo 256). */
+  frame_seq_nb++;
 
-      /* Clear good RX frame event in the DW IC status register. */
-      dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);
+  if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
+  {
+    uint32_t frame_len;
 
-      /* A frame has been received, read it into the local buffer. */
-      frame_len = dwt_read32bitreg(RX_FINFO_ID) & RXFLEN_MASK;
-      if (frame_len <= sizeof(rx_buffer)) {
-        dwt_readrxdata(rx_buffer, frame_len, 0);
+    /* Clear good RX frame event in the DW IC status register. */
+    dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);
 
-        /* Check that the frame is the expected response from the companion "SS TWR responder" example.
+    /* A frame has been received, read it into the local buffer. */
+    frame_len = dwt_read32bitreg(RX_FINFO_ID) & RXFLEN_MASK;
+    if (frame_len <= sizeof(rx_buffer))
+    {
+      dwt_readrxdata(rx_buffer, frame_len, 0);
+
+      /* Check that the frame is the expected response from the companion "SS TWR responder" example.
        * As the sequence number field of the frame is not relevant, it is cleared to simplify the validation of the frame. */
-        rx_buffer[ALL_MSG_SN_IDX] = 0;
-        if (memcmp(rx_buffer, rx_resp_msg, ALL_MSG_COMMON_LEN) == 0) {
-          uint32_t poll_tx_ts, resp_rx_ts, poll_rx_ts, resp_tx_ts;
-          int32_t rtd_init, rtd_resp;
-          float clockOffsetRatio;
+      rx_buffer[ALL_MSG_SN_IDX] = 0;
+      if (memcmp(rx_buffer, rx_resp_msg, ALL_MSG_COMMON_LEN) == 0)
+      {
+        uint32_t poll_tx_ts, resp_rx_ts, poll_rx_ts, resp_tx_ts;
+        int32_t rtd_init, rtd_resp;
+        float clockOffsetRatio;
 
-          /* Retrieve poll transmission and response reception timestamps. See NOTE 9 below. */
-          poll_tx_ts = dwt_readtxtimestamplo32();
-          resp_rx_ts = dwt_readrxtimestamplo32();
+        /* Retrieve poll transmission and response reception timestamps. See NOTE 9 below. */
+        poll_tx_ts = dwt_readtxtimestamplo32();
+        resp_rx_ts = dwt_readrxtimestamplo32();
 
-          /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
-          clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1 << 26);
+        /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
+        clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1 << 26);
 
-          /* Get timestamps embedded in response message. */
-          resp_msg_get_ts(&rx_buffer[RESP_MSG_POLL_RX_TS_IDX], &poll_rx_ts);
-          resp_msg_get_ts(&rx_buffer[RESP_MSG_RESP_TX_TS_IDX], &resp_tx_ts);
+        uint32_t received_anchor_id = 0;
+        received_anchor_id |= (uint32_t)rx_buffer[20] << 24;  // 4th byte of anchor_id
+        received_anchor_id |= (uint32_t)rx_buffer[21] << 16;  // 3rd byte of anchor_id
+        received_anchor_id |= (uint32_t)rx_buffer[22] << 8;   // 2nd byte of anchor_id
+        received_anchor_id |= (uint32_t)rx_buffer[23];
 
-          /* Compute time of flight and distance, using clock offset ratio to correct for differing local and remote clock rates */
-          rtd_init = resp_rx_ts - poll_tx_ts;
-          rtd_resp = resp_tx_ts - poll_rx_ts;
+        Serial.println("Anchor-id: "+ String(received_anchor_id));
 
-          tof = ((rtd_init - rtd_resp * (1 - clockOffsetRatio)) / 2.0) * DWT_TIME_UNITS;
-          distance = tof * SPEED_OF_LIGHT;
+        /* Get timestamps embedded in response message. */
+        resp_msg_get_ts(&rx_buffer[RESP_MSG_POLL_RX_TS_IDX], &poll_rx_ts);
+        resp_msg_get_ts(&rx_buffer[RESP_MSG_RESP_TX_TS_IDX], &resp_tx_ts);
 
-          distances[response_count] = distance;
-          Serial.println("Anchor "+ String(response_count) + "'s distance: "+ String(distance));
-          response_count++;
+        /* Compute time of flight and distance, using clock offset ratio to correct for differing local and remote clock rates */
+        rtd_init = resp_rx_ts - poll_tx_ts;
+        rtd_resp = resp_tx_ts - poll_rx_ts;
 
-          /* Display computed distance on LCD. */
-          // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
-          test_run_info((unsigned char*)dist_str);
-        }
+        tof = ((rtd_init - rtd_resp * (1 - clockOffsetRatio)) / 2.0) * DWT_TIME_UNITS;
+        distance = tof * SPEED_OF_LIGHT;
+
+        /* Display computed distance on LCD. */
+        snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+        test_run_info((unsigned char *)dist_str);
       }
-    } else {
-      /* Clear RX error/timeout events in the DW IC status register. */
-      dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
-    }
-
-    /* Increment frame sequence number after transmission of the poll message (modulo 256). */
-    frame_seq_nb++;
-
-    /* Process the distances[] array to compute the average */
-    if (response_count == 2) {
-      float average_distance = (distances[0] + distances[1]) / 2;
-
-      // Optionally, you can use a simple filter or thresholding method to discard any values that are too far from the average.
-      // This can be helpful in removing any spurious measurements.
-      float threshold = 0.2;  // For example, 20 cm. Adjust based on your needs.
-      if (fabs(distances[0] - distances[1]) > threshold) {
-        // If the difference between the two measurements exceeds the threshold,
-        // you might decide to discard this pair and maybe repeat the measurement.
-        // For now, we just consider the first measurement as the valid one.
-        average_distance = distances[0];
-      }
-
-      /* Display computed average distance on LCD. */
-      snprintf(dist_str, sizeof(dist_str), "AVG DIST: %3.2f m", average_distance);
-      test_run_info((unsigned char*)dist_str);
-
-      client.loop();
-
-      /* For the MQTT publish */
-      char b[12];
-      std::stringstream ss;
-
-      ss << average_distance;
-      ss >> b;
-      client.publish("my-topic", b);
-    } else {
-      // Handle cases where less than 2 valid responses were received.
-      // Maybe display an error or notify the user that the distance measurement was unsuccessful.
-      test_run_info((unsigned char*)"Measurement error!");
     }
   }
-  // client.loop();
+  else
+  {
+    /* Clear RX error/timeout events in the DW IC status register. */
+    dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
+  }
 
-  // char b[12];
-  // std::stringstream ss;
+  client.loop();
 
-  // ss << distance;
-  // ss >> b;
-  // // cout << b << endl;
+  char b[12];
+  std::stringstream ss;
+
+  ss << distance;
+  ss >> b;
+  // cout << b << endl;
 
   // client.publish("my-topic", b);
 
@@ -217,33 +190,34 @@ void setup_wifi() {
 }
 
 
-void setup_mqtt_broker() {
-  Serial.println("Connecting to broker:");
-  client.setServer(mqtt_server, 1883);
-  client.connect("ESP32Client");
-  Serial.println("Broker Connected");
+void setup_mqtt_broker(){
+    Serial.println("Connecting to broker:");
+    client.setServer(mqtt_server, 1883);
+    client.connect("ESP32Client");
+    Serial.println("Broker Connected");
 }
 
 // Placeholder function for initializing the DW3000 module
 void initializeDW3000() {
-  // Setup SPI, pins, and other initializations for the DW3000
-  // Refer to the DW3000 documentation for initialization details
+    // Setup SPI, pins, and other initializations for the DW3000
+    // Refer to the DW3000 documentation for initialization details
 
   UART_init();
 
   spiBegin(PIN_IRQ, PIN_RST);
   spiSelect(PIN_SS);
 
-  delay(2);  // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
+  delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
 
-  while (!dwt_checkidlerc())  // Need to make sure DW IC is in IDLE_RC before proceeding
+  while (!dwt_checkidlerc()) // Need to make sure DW IC is in IDLE_RC before proceeding
   {
     UART_puts("IDLE FAILED\r\n");
     while (1)
       ;
   }
 
-  if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR) {
+  if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR)
+  {
     UART_puts("INIT FAILED\r\n");
     while (1)
       ;
@@ -253,7 +227,7 @@ void initializeDW3000() {
   dwt_setleds(DWT_LEDS_ENABLE | DWT_LEDS_INIT_BLINK);
 
   /* Configure DW IC. See NOTE 6 below. */
-  if (dwt_configure(&config))  // if the dwt_configure returns DWT_ERROR either the PLL or RX calibration has failed the host should reset the device
+  if (dwt_configure(&config)) // if the dwt_configure returns DWT_ERROR either the PLL or RX calibration has failed the host should reset the device
   {
     UART_puts("CONFIG FAILED\r\n");
     while (1)
