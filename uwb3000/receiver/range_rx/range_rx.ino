@@ -20,6 +20,7 @@
 #define RESP_MSG_TS_LEN 4
 #define POLL_TX_TO_RESP_RX_DLY_UUS 240
 #define RESP_RX_TIMEOUT_UUS 400
+#define MAX_ANCHORS 10
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config = {
@@ -47,30 +48,32 @@ static double tof;
 static double distance;
 extern dwt_txconfig_t txconfig_options;
 
-// using namespace std;
-
-// #define ANCHOR_ADD "86:17:5B:D5:A9:9A:E2:9C"
-
-// connection pins
-// const uint8_t PIN_RST = 9; // reset pin
-// const uint8_t PIN_IRQ = 2; // irq pin
-// const uint8_t PIN_SS = SS; 
-
 const char* ssid     = "Vodafone-E319";
 const char* password = "3eDBcatn4AQ88qEh";
 const char* mqtt_server = "192.168.0.80";
 
-// int btnGPIO = 0;
-// int btnState = false;
-
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+struct AnchorData {
+    uint8_t anchor_id;
+    float distance;  // Assuming distance is a float, adjust as needed
+};
+
+struct TagData {
+    uint8_t tag_id;
+    AnchorData anchors[MAX_ANCHORS];
+    uint8_t anchor_count;  // To keep track of how many anchors we have data for
+};
+
+TagData myTagData;
 
 void setup()
 {
   initializeDW3000();
   setup_wifi();
   setup_mqtt_broker();
+  setupTagData();
 }
 
 void loop()
@@ -136,6 +139,15 @@ void loop()
 
         tof = ((rtd_init - rtd_resp * (1 - clockOffsetRatio)) / 2.0) * DWT_TIME_UNITS;
         distance = tof * SPEED_OF_LIGHT;
+
+        /*Maintaqin a list of received anchors*/
+        if (!anchorExists(received_anchor_id)) {
+          if (addAnchor(received_anchor_id, distance)) {
+              Serial.println("size: "+ String(myTagData.anchor_count));
+          }
+        } else {
+            Serial.println("Anchor already exists in the list!");
+        }
 
         /* Display computed distance on LCD. */
         snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
@@ -248,4 +260,30 @@ void initializeDW3000() {
 
   Serial.println("Range RX");
   Serial.println("Setup over........");
+}
+
+void setupTagData() {
+  myTagData.tag_id = 123;
+  myTagData.anchor_count = 0;
+}
+
+bool addAnchor(uint8_t anchor_id, float distance) {
+    // Check if we have space to store the new anchor
+    if (myTagData.anchor_count < MAX_ANCHORS) {
+        myTagData.anchors[myTagData.anchor_count].anchor_id = anchor_id;
+        myTagData.anchors[myTagData.anchor_count].distance = distance;
+        myTagData.anchor_count++;
+        return true;  // Successfully added
+    } else {
+        return false;  // No space to store the new anchor
+    }
+}
+
+bool anchorExists(uint8_t anchor_id) {
+    for (uint8_t i = 0; i < myTagData.anchor_count; i++) {
+        if (myTagData.anchors[i].anchor_id == anchor_id) {
+            return true;
+        }
+    }
+    return false;
 }
