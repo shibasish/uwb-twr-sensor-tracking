@@ -5,7 +5,6 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-#include <ArduinoJson.h>
 
 #define PIN_RST 27
 #define PIN_IRQ 34
@@ -21,7 +20,6 @@
 #define RESP_MSG_TS_LEN 4
 #define POLL_TX_TO_RESP_RX_DLY_UUS 240
 #define RESP_RX_TIMEOUT_UUS 400
-#define MAX_ANCHORS 2
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config = {
@@ -41,42 +39,38 @@ static dwt_config_t config = {
 };
 
 static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0xE0, 0, 0};
-static uint8_t rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8_t frame_seq_nb = 0;
-static uint8_t rx_buffer[30];
+static uint8_t rx_buffer[20];
 static uint32_t status_reg = 0;
 static double tof;
 static double distance;
 extern dwt_txconfig_t txconfig_options;
 
+// using namespace std;
+
+// #define ANCHOR_ADD "86:17:5B:D5:A9:9A:E2:9C"
+
+// connection pins
+// const uint8_t PIN_RST = 9; // reset pin
+// const uint8_t PIN_IRQ = 2; // irq pin
+// const uint8_t PIN_SS = SS; 
+
 const char* ssid     = "Vodafone-E319";
 const char* password = "3eDBcatn4AQ88qEh";
 const char* mqtt_server = "192.168.0.80";
 
+// int btnGPIO = 0;
+// int btnState = false;
+
 WiFiClient espClient;
 PubSubClient client(espClient);
-
-struct AnchorData {
-    uint32_t anchor_id;
-    float distance;  // Assuming distance is a float, adjust as needed
-};
-
-struct TagData {
-    uint32_t tag_id;
-    AnchorData anchors[MAX_ANCHORS];
-    uint8_t anchor_count;  // To keep track of how many anchors we have data for
-};
-
-TagData myTagData;
-uint8_t mac_arr[6];
 
 void setup()
 {
   initializeDW3000();
-  assignMacAddress();
   setup_wifi();
   setup_mqtt_broker();
-  setupTagData();
 }
 
 void loop()
@@ -128,9 +122,6 @@ void loop()
         /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
         clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1 << 26);
 
-        uint32_t received_anchor_id = rx_buffer[20] * 1000 + rx_buffer[21];
-        Serial.println(received_anchor_id, DEC);
-
         /* Get timestamps embedded in response message. */
         resp_msg_get_ts(&rx_buffer[RESP_MSG_POLL_RX_TS_IDX], &poll_rx_ts);
         resp_msg_get_ts(&rx_buffer[RESP_MSG_RESP_TX_TS_IDX], &resp_tx_ts);
@@ -142,15 +133,9 @@ void loop()
         tof = ((rtd_init - rtd_resp * (1 - clockOffsetRatio)) / 2.0) * DWT_TIME_UNITS;
         distance = tof * SPEED_OF_LIGHT;
 
-        /*Maintaqin a list of received anchors*/
-        if (!anchorExists(received_anchor_id)) {
-          if (addAnchor(received_anchor_id, distance)) {
-          }
-        }
-
         /* Display computed distance on LCD. */
-        // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
-        // test_run_info((unsigned char *)dist_str);
+        snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+        test_run_info((unsigned char *)dist_str);
       }
     }
   }
@@ -160,16 +145,19 @@ void loop()
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
   }
 
+  client.loop();
 
-  if(myTagData.anchor_count == MAX_ANCHORS) {
-    String jsonData = tagDataToJson(myTagData);
-    client.loop();
-    client.publish("my-topic", jsonData.c_str());
-    myTagData.anchor_count = 0;
+  char b[12];
+  std::stringstream ss;
 
-    /* Execute a delay between ranging exchanges. */
-    Sleep(RNG_DELAY_MS);
-  }
+  ss << distance;
+  ss >> b;
+  // cout << b << endl;
+
+  client.publish("my-topic", b);
+
+  /* Execute a delay between ranging exchanges. */
+  Sleep(RNG_DELAY_MS);
 }
 
 void setup_wifi() {
@@ -256,57 +244,4 @@ void initializeDW3000() {
 
   Serial.println("Range RX");
   Serial.println("Setup over........");
-}
-
-void assignMacAddress() {
-  Serial.println("Printing MAC address");
-  uint64_t mac = ESP.getEfuseMac();
-  for (int i = 0; i < 6; i++) {
-    mac_arr[i] = (mac >> (8 * i)) & 0xFF;
-    Serial.print(String(mac_arr[i])+ " ");
-  }
-  Serial.println();
-}
-
-void setupTagData() {
-  myTagData.tag_id = mac_arr[4] * 100 + mac_arr[5];
-  myTagData.anchor_count = 0;
-}
-
-bool addAnchor(uint32_t anchor_id, float distance) {
-    // Check if we have space to store the new anchor
-    if (myTagData.anchor_count < MAX_ANCHORS) {
-        myTagData.anchors[myTagData.anchor_count].anchor_id = anchor_id;
-        myTagData.anchors[myTagData.anchor_count].distance = distance;
-        myTagData.anchor_count++;
-        return true;  // Successfully added
-    } else {
-        return false;  // No space to store the new anchor
-    }
-}
-
-bool anchorExists(uint32_t anchor_id) {
-    for (uint8_t i = 0; i < myTagData.anchor_count; i++) {
-        if (myTagData.anchors[i].anchor_id == anchor_id) {
-            return true;
-        }
-    }
-    return false;
-}
-
-String tagDataToJson(const TagData& tagData) {
-    StaticJsonDocument<512> doc;  // Adjust the size based on your needs
-
-    doc["tag_id"] = tagData.tag_id;
-
-    JsonArray anchors = doc.createNestedArray("anchors");
-    for (int i = 0; i < tagData.anchor_count; i++) {
-        JsonObject anchor = anchors.createNestedObject();
-        anchor["anchor_id"] = tagData.anchors[i].anchor_id;
-        anchor["distance"] = tagData.anchors[i].distance;
-    }
-
-    String result;
-    serializeJson(doc, result);
-    return result;
 }
