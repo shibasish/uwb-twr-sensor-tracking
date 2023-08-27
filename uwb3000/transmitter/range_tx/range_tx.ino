@@ -140,8 +140,8 @@ void loop()
         resp_tx_ts = (((uint64_t)(resp_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
 
         /* Add first 8-bit anchor mac address*/
-        tx_resp_msg[20] = mac_arr[0]; 
-        // tx_resp_msg[21] = mac_arr[1];
+        tx_resp_msg[20] = mac_arr[4]; 
+        tx_resp_msg[21] = mac_arr[5];
 
         /* Write all timestamps in the final message. See NOTE 8 below. */
         resp_msg_set_ts(&tx_resp_msg[RESP_MSG_POLL_RX_TS_IDX], poll_rx_ts);

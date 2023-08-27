@@ -57,12 +57,12 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 struct AnchorData {
-    uint8_t anchor_id;
+    uint32_t anchor_id;
     float distance;  // Assuming distance is a float, adjust as needed
 };
 
 struct TagData {
-    uint8_t tag_id;
+    uint32_t tag_id;
     AnchorData anchors[MAX_ANCHORS];
     uint8_t anchor_count;  // To keep track of how many anchors we have data for
 };
@@ -128,8 +128,7 @@ void loop()
         /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
         clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1 << 26);
 
-        uint8_t received_anchor_id = 0;
-        memcpy(&received_anchor_id, &rx_buffer[20], sizeof(received_anchor_id));
+        uint32_t received_anchor_id = rx_buffer[20] * 1000 + rx_buffer[21];
         Serial.println(received_anchor_id, DEC);
 
         /* Get timestamps embedded in response message. */
@@ -146,14 +145,12 @@ void loop()
         /*Maintaqin a list of received anchors*/
         if (!anchorExists(received_anchor_id)) {
           if (addAnchor(received_anchor_id, distance)) {
-              Serial.println("size: "+ String(myTagData.anchor_count));
           }
-        } else {
-            Serial.println("Anchor already exists in the list!");
         }
+
         /* Display computed distance on LCD. */
-        snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
-        test_run_info((unsigned char *)dist_str);
+        // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+        // test_run_info((unsigned char *)dist_str);
       }
     }
   }
@@ -165,15 +162,14 @@ void loop()
 
 
   if(myTagData.anchor_count == MAX_ANCHORS) {
-    Serial.println("PUBLISHING to MQTT");
     String jsonData = tagDataToJson(myTagData);
     client.loop();
     client.publish("my-topic", jsonData.c_str());
     myTagData.anchor_count = 0;
-  }
 
-  /* Execute a delay between ranging exchanges. */
-  Sleep(RNG_DELAY_MS);
+    /* Execute a delay between ranging exchanges. */
+    Sleep(RNG_DELAY_MS);
+  }
 }
 
 void setup_wifi() {
@@ -263,7 +259,7 @@ void initializeDW3000() {
 }
 
 void assignMacAddress() {
-  Serial.println("Assigning MAC address");
+  Serial.println("Printing MAC address");
   uint64_t mac = ESP.getEfuseMac();
   for (int i = 0; i < 6; i++) {
     mac_arr[i] = (mac >> (8 * i)) & 0xFF;
@@ -273,11 +269,11 @@ void assignMacAddress() {
 }
 
 void setupTagData() {
-  myTagData.tag_id = 123;
+  myTagData.tag_id = mac_arr[4] * 100 + mac_arr[5];
   myTagData.anchor_count = 0;
 }
 
-bool addAnchor(uint8_t anchor_id, float distance) {
+bool addAnchor(uint32_t anchor_id, float distance) {
     // Check if we have space to store the new anchor
     if (myTagData.anchor_count < MAX_ANCHORS) {
         myTagData.anchors[myTagData.anchor_count].anchor_id = anchor_id;
@@ -289,7 +285,7 @@ bool addAnchor(uint8_t anchor_id, float distance) {
     }
 }
 
-bool anchorExists(uint8_t anchor_id) {
+bool anchorExists(uint32_t anchor_id) {
     for (uint8_t i = 0; i < myTagData.anchor_count; i++) {
         if (myTagData.anchors[i].anchor_id == anchor_id) {
             return true;
