@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <ArduinoJson.h>
 
 #define PIN_RST 27
 #define PIN_IRQ 34
@@ -20,7 +21,7 @@
 #define RESP_MSG_TS_LEN 4
 #define POLL_TX_TO_RESP_RX_DLY_UUS 240
 #define RESP_RX_TIMEOUT_UUS 400
-#define MAX_ANCHORS 10
+#define MAX_ANCHORS 2
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config = {
@@ -67,10 +68,12 @@ struct TagData {
 };
 
 TagData myTagData;
+uint8_t mac_arr[6];
 
 void setup()
 {
   initializeDW3000();
+  assignMacAddress();
   setup_wifi();
   setup_mqtt_broker();
   setupTagData();
@@ -148,7 +151,6 @@ void loop()
         } else {
             Serial.println("Anchor already exists in the list!");
         }
-
         /* Display computed distance on LCD. */
         snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
         test_run_info((unsigned char *)dist_str);
@@ -161,16 +163,14 @@ void loop()
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
   }
 
-  client.loop();
 
-  char b[12];
-  std::stringstream ss;
-
-  ss << distance;
-  ss >> b;
-  // cout << b << endl;
-
-  // client.publish("my-topic", b);
+  if(myTagData.anchor_count == MAX_ANCHORS) {
+    Serial.println("PUBLISHING to MQTT");
+    String jsonData = tagDataToJson(myTagData);
+    client.loop();
+    client.publish("my-topic", jsonData.c_str());
+    myTagData.anchor_count = 0;
+  }
 
   /* Execute a delay between ranging exchanges. */
   Sleep(RNG_DELAY_MS);
@@ -262,6 +262,16 @@ void initializeDW3000() {
   Serial.println("Setup over........");
 }
 
+void assignMacAddress() {
+  Serial.println("Assigning MAC address");
+  uint64_t mac = ESP.getEfuseMac();
+  for (int i = 0; i < 6; i++) {
+    mac_arr[i] = (mac >> (8 * i)) & 0xFF;
+    Serial.print(String(mac_arr[i])+ " ");
+  }
+  Serial.println();
+}
+
 void setupTagData() {
   myTagData.tag_id = 123;
   myTagData.anchor_count = 0;
@@ -286,4 +296,21 @@ bool anchorExists(uint8_t anchor_id) {
         }
     }
     return false;
+}
+
+String tagDataToJson(const TagData& tagData) {
+    StaticJsonDocument<512> doc;  // Adjust the size based on your needs
+
+    doc["tag_id"] = tagData.tag_id;
+
+    JsonArray anchors = doc.createNestedArray("anchors");
+    for (int i = 0; i < tagData.anchor_count; i++) {
+        JsonObject anchor = anchors.createNestedObject();
+        anchor["anchor_id"] = tagData.anchors[i].anchor_id;
+        anchor["distance"] = tagData.anchors[i].distance;
+    }
+
+    String result;
+    serializeJson(doc, result);
+    return result;
 }
